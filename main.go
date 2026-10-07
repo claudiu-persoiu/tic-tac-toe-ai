@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+
+	// Options:
+	// - nimble:9b
+	// - tev1:4b
+
+	model := "tev1:4b"
+
 	matrix := [3][3]string{
 		{"", "", ""},
 		{"", "", ""},
@@ -20,7 +27,7 @@ func main() {
 
 	for !is_finished(matrix) {
 		state, options := get_state(matrix)
-		x, y := make_call(state, options, "x")
+		x, y := make_call(state, options, "x", model)
 		matrix[x][y] = "x"
 		render_matrix(matrix)
 
@@ -29,15 +36,15 @@ func main() {
 			break
 		}
 
-		x, y = make_call(state, options, "o")
+		x, y = make_call(state, options, "o", model)
 		matrix[x][y] = "o"
 		render_matrix(matrix)
 	}
 }
 
-func get_state(matrix [3][3]string) ([]string, []string) {
+func get_state(matrix [3][3]string) ([]string, map[string]string) {
 	var state []string
-	var options []string
+	options := make(map[string]string)
 	for x, row := range matrix {
 		for y, cell := range row {
 			xs := strconv.Itoa(x)
@@ -45,9 +52,9 @@ func get_state(matrix [3][3]string) ([]string, []string) {
 			if cell == "" {
 				cell = "empty"
 			}
-			state = append(state, "("+xs+","+ys+")='"+cell+"'")
+			state = append(state, "'"+xs+","+ys+"'='"+cell+"'")
 			if cell == "empty" {
-				options = append(options, "\"("+xs+","+ys+")\"")
+				options[xs+","+ys] = "empty"
 			}
 		}
 	}
@@ -73,37 +80,47 @@ func render_matrix(matrix [3][3]string) {
 	}
 }
 
-func make_call(state []string, options []string, option string) (int, int) {
+func make_call(state []string, options map[string]string, option string, model string) (int, int) {
 
 	if len(options) == 1 {
-		opt := options[0]
-		x, _ := strconv.Atoi(string(opt[2]))
-		y, _ := strconv.Atoi(string(opt[4]))
-		return x, y
+		for pos := range options {
+			x, _ := strconv.Atoi(string(pos[1]))
+			y, _ := strconv.Atoi(string(pos[3]))
+			return x, y
+		}
+	}
+
+	var strOpt strings.Builder
+
+	for key, val := range options {
+		strOpt.WriteString(key + ": \"" + val + "\",")
+	}
+
+	requestData := &request{
+		Model: model,
+		State: stateRequest{
+			TicTacToe: strings.Join(state, ", "),
+		},
+		Questions: questions{
+			Position: positionRequest{
+				Type:         "choice",
+				Instructions: "You are playing tic-tac-toe, the table starts at '0,0', what is the next position to play if you play with " + option + ",",
+				Criteria:     options,
+			},
+		},
+	}
+
+	data, err := json.Marshal(requestData)
+
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	url := "http://localhost:11434/v1/systemone"
 
-	// Options:
-	// - nimble:9b
-	// - tev1:4b
+	println("Making call to " + url + " with data: " + string(data))
 
-	data := "{" +
-		"\"model\": \"tev1:4b\"," +
-		"\"state\": {\"tic-tac-toe\": \"" + strings.Join(state, ", ") + "\"}," +
-		"\"questions\": " +
-		"{\"position\": " +
-		"{" +
-		"\"type\": \"score\"," +
-		"\"instructions\": \"You are playing tic-tac-toe, what is the next position if you play with " + option + "\"," +
-		"\"criteria\": [" + strings.Join(options, ", ") + "]" +
-		"}" +
-		"}" +
-		"}"
-
-	println("Making call to " + url + " with data: " + data)
-
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer([]byte(data)))
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(data))
 
 	if err != nil {
 		log.Fatal(err)
@@ -120,24 +137,12 @@ func make_call(state []string, options []string, option string) (int, int) {
 		log.Fatal(err)
 	}
 
-	var max float32
-	var maxPos string
+	fmt.Println("Choice: " + respData.Answers.Position.Choice)
 
-	for pos, prob := range respData.Answers.Position.Probabilities {
+	choice := respData.Answers.Position.Choice
 
-		if prob > max {
-			max = prob
-			maxPos = pos
-		}
-	}
-
-	fmt.Printf("Position: %s, Probability: %f, Legend: %s\n", maxPos, max, respData.Answers.Position.Legend[maxPos])
-
-	maxLegend := respData.Answers.Position.Legend[maxPos]
-	fmt.Println("Max Legend: " + string(maxLegend[1]) + " - " + string(maxLegend[3]))
-
-	x, _ := strconv.Atoi(string(maxLegend[1]))
-	y, _ := strconv.Atoi(string(maxLegend[3]))
+	x, _ := strconv.Atoi(string(choice[0]))
+	y, _ := strconv.Atoi(string(choice[2]))
 
 	return x, y
 }
@@ -151,6 +156,27 @@ type answers struct {
 }
 
 type position struct {
+	Choice        string             `json:"choice"`
 	Legend        map[string]string  `json:"legend"`
 	Probabilities map[string]float32 `json:"probabilities"`
+}
+
+type request struct {
+	Model     string       `json:"model"`
+	State     stateRequest `json:"state"`
+	Questions questions    `json:"questions"`
+}
+
+type stateRequest struct {
+	TicTacToe string `json:"tic-tac-toe"`
+}
+
+type questions struct {
+	Position positionRequest `json:"position"`
+}
+
+type positionRequest struct {
+	Type         string            `json:"type"`
+	Instructions string            `json:"instructions"`
+	Criteria     map[string]string `json:"criteria"`
 }
