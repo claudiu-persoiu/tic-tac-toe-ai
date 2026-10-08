@@ -8,6 +8,7 @@ Possible models:
 
     nimble:9b
     tev1:4b
+    tev1:0.8b
 
 ## Instructions
 

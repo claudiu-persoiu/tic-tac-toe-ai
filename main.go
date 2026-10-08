@@ -43,7 +43,7 @@ func main() {
 	}
 }
 
-var models = []string{"nimble:9b", "tev1:4b"}
+var models = []string{"nimble:9b", "tev1:4b", "tev1:0.8b"}
 
 const defaultPrompt = "You want to win"
 
