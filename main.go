@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/claudiu-persoiu/tic-tac-toe-ai/internal/dto"
 )
 
 func main() {
@@ -17,7 +19,9 @@ func main() {
 	// - nimble:9b
 	// - tev1:4b
 
-	model := "tev1:4b"
+	model := "nimble:9b"
+
+	prompt := "You want to win."
 
 	matrix := [3][3]string{
 		{"", "", ""},
@@ -25,25 +29,25 @@ func main() {
 		{"", "", ""},
 	}
 
-	for !is_finished(matrix) {
-		state, options := get_state(matrix)
-		x, y := make_call(state, options, "x", model)
+	for !isFinished(matrix) {
+		state, options := getState(matrix)
+		x, y := makeCall(state, options, "x", model, prompt)
 		matrix[x][y] = "x"
-		render_matrix(matrix)
+		renderMatrix(matrix)
 
-		state, options = get_state(matrix)
+		state, options = getState(matrix)
 		if len(options) == 0 {
 			break
 		}
 
-		x, y = make_call(state, options, "o", model)
+		x, y = makeCall(state, options, "o", model, prompt)
 		matrix[x][y] = "o"
-		render_matrix(matrix)
+		renderMatrix(matrix)
 	}
 }
 
-func get_state(matrix [3][3]string) ([]string, map[string]string) {
-	var state []string
+func getState(matrix [3][3]string) (map[string]string, map[string]string) {
+	state := make(map[string]string)
 	options := make(map[string]string)
 	for x, row := range matrix {
 		for y, cell := range row {
@@ -52,7 +56,7 @@ func get_state(matrix [3][3]string) ([]string, map[string]string) {
 			if cell == "" {
 				cell = "empty"
 			}
-			state = append(state, "'"+xs+","+ys+"'='"+cell+"'")
+			state[xs+","+ys] = cell
 			if cell == "empty" {
 				options[xs+","+ys] = "empty"
 			}
@@ -61,7 +65,7 @@ func get_state(matrix [3][3]string) ([]string, map[string]string) {
 	return state, options
 }
 
-func is_finished(matrix [3][3]string) bool {
+func isFinished(matrix [3][3]string) bool {
 	// check if tic-tac-toe is finished
 	for _, row := range matrix {
 		for _, cell := range row {
@@ -73,19 +77,27 @@ func is_finished(matrix [3][3]string) bool {
 	return true
 }
 
-func render_matrix(matrix [3][3]string) {
+func renderMatrix(matrix [3][3]string) {
 	fmt.Println("Current state of the matrix:")
 	for _, row := range matrix {
-		fmt.Println(row)
+		var s strings.Builder
+		for _, cell := range row {
+			if cell == "" {
+				s.WriteString("  ")
+			} else {
+				s.WriteString(cell + " ")
+			}
+		}
+		fmt.Println("[ " + s.String() + "]")
 	}
 }
 
-func make_call(state []string, options map[string]string, option string, model string) (int, int) {
+func makeCall(state map[string]string, options map[string]string, option string, model string, prompt string) (int, int) {
 
 	if len(options) == 1 {
-		for pos := range options {
-			x, _ := strconv.Atoi(string(pos[1]))
-			y, _ := strconv.Atoi(string(pos[3]))
+		for pos, _ := range options {
+			x, _ := strconv.Atoi(string(pos[0]))
+			y, _ := strconv.Atoi(string(pos[2]))
 			return x, y
 		}
 	}
@@ -96,15 +108,13 @@ func make_call(state []string, options map[string]string, option string, model s
 		strOpt.WriteString(key + ": \"" + val + "\",")
 	}
 
-	requestData := &request{
+	requestData := &dto.Request{
 		Model: model,
-		State: stateRequest{
-			TicTacToe: strings.Join(state, ", "),
-		},
-		Questions: questions{
-			Position: positionRequest{
+		State: state,
+		Questions: dto.Questions{
+			Position: dto.PositionRequest{
 				Type:         "choice",
-				Instructions: "You are playing tic-tac-toe, the table starts at '0,0', what is the next position to play if you play with " + option + ",",
+				Instructions: "For a tic-tac-toe game, the table starts at '0,0', you play with " + option + "." + prompt,
 				Criteria:     options,
 			},
 		},
@@ -118,7 +128,7 @@ func make_call(state []string, options map[string]string, option string, model s
 
 	url := "http://localhost:11434/v1/systemone"
 
-	println("Making call to " + url + " with data: " + string(data))
+	log.Println("Making call to " + url + " with data: " + string(data))
 
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(data))
 
@@ -130,14 +140,14 @@ func make_call(state []string, options map[string]string, option string, model s
 
 	log.Println("Response:", string(body))
 
-	var respData response
+	var respData dto.Response
 	err = json.Unmarshal(body, &respData)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Choice: " + respData.Answers.Position.Choice)
+	log.Println("Choice: " + respData.Answers.Position.Choice)
 
 	choice := respData.Answers.Position.Choice
 
@@ -145,38 +155,4 @@ func make_call(state []string, options map[string]string, option string, model s
 	y, _ := strconv.Atoi(string(choice[2]))
 
 	return x, y
-}
-
-type response struct {
-	Answers answers `json:"answers"`
-}
-
-type answers struct {
-	Position position `json:"position"`
-}
-
-type position struct {
-	Choice        string             `json:"choice"`
-	Legend        map[string]string  `json:"legend"`
-	Probabilities map[string]float32 `json:"probabilities"`
-}
-
-type request struct {
-	Model     string       `json:"model"`
-	State     stateRequest `json:"state"`
-	Questions questions    `json:"questions"`
-}
-
-type stateRequest struct {
-	TicTacToe string `json:"tic-tac-toe"`
-}
-
-type questions struct {
-	Position positionRequest `json:"position"`
-}
-
-type positionRequest struct {
-	Type         string            `json:"type"`
-	Instructions string            `json:"instructions"`
-	Criteria     map[string]string `json:"criteria"`
 }
