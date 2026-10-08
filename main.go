@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -15,13 +17,8 @@ import (
 
 func main() {
 
-	// Options:
-	// - nimble:9b
-	// - tev1:4b
-
-	model := "nimble:9b"
-
-	prompt := "You want to win."
+	model := selectModel()
+	prompt := askPrompt()
 
 	matrix := [3][3]string{
 		{"", "", ""},
@@ -44,6 +41,55 @@ func main() {
 		matrix[x][y] = "o"
 		renderMatrix(matrix)
 	}
+}
+
+var models = []string{"nimble:9b", "tev1:4b"}
+
+const defaultPrompt = "You want to win"
+
+var reader = bufio.NewReader(os.Stdin)
+
+func selectModel() string {
+	for {
+		fmt.Println("Select the model to use:")
+		for i, m := range models {
+			fmt.Printf("%d) %s\n", i+1, m)
+		}
+		fmt.Print("Choice [1]: ")
+
+		line, err := reader.ReadString('\n')
+		if err != nil && line == "" {
+			log.Fatal(err)
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return models[0]
+		}
+
+		choice, err := strconv.Atoi(line)
+		if err == nil && choice >= 1 && choice <= len(models) {
+			return models[choice-1]
+		}
+
+		fmt.Println("Invalid choice, please try again.")
+	}
+}
+
+func askPrompt() string {
+	fmt.Printf("Prompt for the model [%s]: ", defaultPrompt)
+
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		log.Fatal(err)
+	}
+
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultPrompt
+	}
+
+	return line
 }
 
 func getState(matrix [3][3]string) (map[string]string, map[string]string) {
